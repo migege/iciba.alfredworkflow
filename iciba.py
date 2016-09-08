@@ -1,5 +1,9 @@
 #!/usr/bin/env python
 # -*- coding:utf8 -*-
+
+__author__ = 'lzw.whu@gmail.com'
+__version__ = '20160908:03'
+
 import sys
 import os
 from alfred.feedback import Feedback
@@ -23,9 +27,14 @@ def get_phonetic_symbols(word, headers):
                     subtitle = mean['part'] + ' ' + '; '.join(mean['means'])
                 else:
                     subtitle = '; '.join(mean['means'])
+                if 'ph_en' in symbol and 'ph_am' in symbol:
+                    title = '{word} 英:[{en}] 美:[{am}]'.format(
+                        word=word, en=symbol['ph_en'], am=symbol['ph_am'])
+                elif 'word_symbol' in symbol:
+                    title = '{word} 拼音:[{word_symbol}]'.format(
+                        word=word, word_symbol=symbol['word_symbol'])
                 kwargs = {
-                    'title': '{word} 英:[{en}] 美:[{am}]'.format(
-                        word=word, en=symbol['ph_en'], am=symbol['ph_am']),
+                    'title': title,
                     'subtitle': subtitle,
                     'arg': 'http://www.iciba.com/%s' % word,
                 }
@@ -44,6 +53,15 @@ def get_suggest(q, headers):
         fb = Feedback()
         for msg in res['message']:
             means = msg['means']
+            if not means:
+                kwargs = {
+                    'title': msg['key'],
+                    'autocomplete': '> %s' % msg['key'],
+                    'valid': False,
+                }
+                fb.addItem(**kwargs)
+                continue
+
             for mean in means:
                 if mean['part']:
                     subtitle = mean['part'] + ' ' + '; '.join(mean['means'])
