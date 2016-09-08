@@ -2,7 +2,7 @@
 
 ```raw
 @author  lzw.whu@gmail.com
-@version 20160907:01
+@version 20160908:02
 ```
 
 ## 安装
