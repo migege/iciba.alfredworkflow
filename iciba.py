@@ -9,13 +9,35 @@ reload(sys)
 sys.setdefaultencoding('utf8')
 
 
-def run(q):
+def get_phonetic_symbols(word, headers):
+    word = word.strip()
+    url = 'http://www.iciba.com/index.php?a=getWordMean&c=search&list=1&word=%s' % word
+    try:
+        r = requests.get(url, headers=headers)
+        res = r.json()
+        fb = Feedback()
+        for symbol in res['baesInfo']['symbols']:
+            means = symbol['parts']
+            for mean in means:
+                if mean['part']:
+                    subtitle = mean['part'] + ' ' + '; '.join(mean['means'])
+                else:
+                    subtitle = '; '.join(mean['means'])
+                kwargs = {
+                    'title': '{word} 英:[{en}] 美:[{am}]'.format(
+                        word=word, en=symbol['ph_en'], am=symbol['ph_am']),
+                    'subtitle': subtitle,
+                    'arg': 'http://www.iciba.com/%s' % word,
+                }
+                fb.addItem(**kwargs)
+        fb.output()
+    except:
+        pass
+
+
+def get_suggest(q, headers):
     q = q.strip()
     url = 'http://dict-mobile.iciba.com/interface/index.php?c=word&m=getsuggest&nums=5&client=6&uid=0&is_need_mean=1&word=%s' % q
-    headers = {
-        'User-Agent':
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/53.0.2785.89 Safari/537.36',
-    }
     try:
         r = requests.get(url, headers=headers)
         res = r.json()
@@ -31,6 +53,8 @@ def run(q):
                     'title': msg['key'],
                     'subtitle': subtitle,
                     'arg': 'http://www.iciba.com/%s' % q,
+                    'autocomplete': '> %s' % msg['key'],
+                    'valid': False,
                 }
                 fb.addItem(**kwargs)
         fb.output()
@@ -41,5 +65,14 @@ def run(q):
 if __name__ == '__main__':
     if len(sys.argv) < 2:
         sys.exit()
+
+    headers = {
+        'User-Agent':
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/53.0.2785.89 Safari/537.36',
+    }
     q = sys.argv[1]
-    run(q)
+    if '>' in q:
+        q = q.split('>')[-1]
+        get_phonetic_symbols(q, headers)
+    else:
+        get_suggest(q, headers)

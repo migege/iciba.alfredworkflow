@@ -11,4 +11,14 @@
 
 ## 使用
 
+```
+ci <word>
+```
+
 ![iciba.alfredworkflow](https://raw.githubusercontent.com/migege/iciba.alfredworkflow/master/screenshots/iciba.alfredworkflow.png)
+
+```
+ci > <word>
+```
+
+![iciba.alfredworkflow](https://raw.githubusercontent.com/migege/iciba.alfredworkflow/master/screenshots/iciba.alfredworkflow.2.png)
