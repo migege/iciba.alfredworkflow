@@ -28,11 +28,9 @@ def get_phonetic_symbols(word, headers):
                 else:
                     subtitle = '; '.join(mean['means'])
                 if 'ph_en' in symbol and 'ph_am' in symbol:
-                    title = '{word} 英:[{en}] 美:[{am}]'.format(
-                        word=word, en=symbol['ph_en'], am=symbol['ph_am'])
+                    title = '{word} 英:[{en}] 美:[{am}]'.format(word=word, en=symbol['ph_en'], am=symbol['ph_am'])
                 elif 'word_symbol' in symbol:
-                    title = '{word} 拼音:[{word_symbol}]'.format(
-                        word=word, word_symbol=symbol['word_symbol'])
+                    title = '{word} 拼音:[{word_symbol}]'.format(word=word, word_symbol=symbol['word_symbol'])
                 kwargs = {
                     'title': title,
                     'subtitle': subtitle,
@@ -63,10 +61,14 @@ def get_suggest(q, headers):
                 continue
 
             for mean in means:
-                if mean['part']:
-                    subtitle = mean['part'] + ' ' + '; '.join(mean['means'])
-                else:
-                    subtitle = '; '.join(mean['means'])
+                if 'means' in mean and len(mean['means']) > 0:
+                    if type(mean['means'][0]) in (str, unicode):
+                        if mean['part']:
+                            subtitle = mean['part'] + ' ' + '; '.join(mean['means'])
+                        else:
+                            subtitle = '; '.join(mean['means'])
+                    elif type(mean['means'][0]) in (dict,):
+                        subtitle = '; '.join(map(lambda x: x['word_mean'], mean['means']))
                 kwargs = {
                     'title': msg['key'],
                     'subtitle': subtitle,
@@ -76,7 +78,7 @@ def get_suggest(q, headers):
                 }
                 fb.addItem(**kwargs)
         fb.output()
-    except:
+    except Exception, e:
         pass
 
 
@@ -84,10 +86,7 @@ if __name__ == '__main__':
     if len(sys.argv) < 2:
         sys.exit()
 
-    headers = {
-        'User-Agent':
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/53.0.2785.89 Safari/537.36',
-    }
+    headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/53.0.2785.89 Safari/537.36',}
     q = sys.argv[1]
     if '>' in q:
         q = q.split('>')[-1]
