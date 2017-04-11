@@ -86,8 +86,10 @@ if __name__ == '__main__':
     if len(sys.argv) < 2:
         sys.exit()
 
-    headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/53.0.2785.89 Safari/537.36',}
-    q = sys.argv[1]
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/53.0.2785.89 Safari/537.36',
+    }
+    q = sys.argv[1].lower()
     if '>' in q:
         q = q.split('>')[-1]
         get_phonetic_symbols(q, headers)
