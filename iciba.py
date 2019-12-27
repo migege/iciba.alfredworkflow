@@ -1,14 +1,17 @@
 #!/usr/bin/env python
 # -*- coding:utf8 -*-
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+from __future__ import unicode_literals
 
 __author__ = 'lzw.whu@gmail.com'
-__version__ = '20160908:03'
+__version__ = '20191227:01'
 
-import sys
-import os
 from alfred.feedback import Feedback
 import requests
 
+import sys
 reload(sys)
 sys.setdefaultencoding('utf8')
 
@@ -61,14 +64,10 @@ def get_suggest(q, headers):
                 continue
 
             for mean in means:
-                if 'means' in mean and len(mean['means']) > 0:
-                    if type(mean['means'][0]) in (str, unicode):
-                        if mean['part']:
-                            subtitle = mean['part'] + ' ' + '; '.join(mean['means'])
-                        else:
-                            subtitle = '; '.join(mean['means'])
-                    elif type(mean['means'][0]) in (dict,):
-                        subtitle = '; '.join(map(lambda x: x['word_mean'], mean['means']))
+                if mean['part']:
+                    subtitle = mean['part'] + ' ' + '; '.join(mean['means'])
+                else:
+                    subtitle = '; '.join(mean['means'])
                 kwargs = {
                     'title': msg['key'],
                     'subtitle': subtitle,
@@ -78,7 +77,7 @@ def get_suggest(q, headers):
                 }
                 fb.addItem(**kwargs)
         fb.output()
-    except Exception, e:
+    except:
         pass
 
 
@@ -89,7 +88,7 @@ if __name__ == '__main__':
     headers = {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/53.0.2785.89 Safari/537.36',
     }
-    q = sys.argv[1].lower()
+    q = sys.argv[1]
     if '>' in q:
         q = q.split('>')[-1]
         get_phonetic_symbols(q, headers)
