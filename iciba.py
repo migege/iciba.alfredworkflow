@@ -12,8 +12,62 @@ from alfred.feedback import Feedback
 import requests
 
 import sys
+import time
+import hashlib
+import json
+
 reload(sys)
 sys.setdefaultencoding('utf8')
+
+
+def get_phonetic_symbols_new(word, headers):
+    word = word.strip()
+    # url = "https://dict.iciba.com/dictionary/word/query/web?client=6&key=1000006&timestamp=1628233093905&word=hello&signature=0a78228c59344a8c368f20d47fe6fd2b"
+    data = [
+        ("client", "6"),
+        ("key", "1000006"),
+        ("timestamp", str(int(time.time() * 1000))),
+        ("word", word),
+    ]
+    url = "https://dict.iciba.com/dictionary/word/query/web"
+
+    to_sign = url[len("https:"):].replace("//dict.iciba.com", "")
+    for k, v in data:
+        to_sign += v
+    to_sign += "7ece94d9f9c202b0d2ec557dg4r9bc"
+    sign = hashlib.md5(to_sign).hexdigest()
+    data.append(("signature", sign))
+    url += "?"
+    for k, v in data:
+        url += "{k}={v}&".format(k=k, v=v)
+    url.rstrip("&")
+    r = requests.get(url, headers=headers)
+    res = r.json()
+    # print(json.dumps(res))
+
+    try:
+        fb = Feedback()
+        msg = res["message"]
+        for symbol in msg['baesInfo']['symbols']:
+            means = symbol['parts']
+            for mean in means:
+                if mean['part']:
+                    subtitle = mean['part'] + ' ' + '; '.join(mean['means'])
+                else:
+                    subtitle = '; '.join(mean['means'])
+                if 'ph_en' in symbol and 'ph_am' in symbol:
+                    title = '{word} 英:[{en}] 美:[{am}]'.format(word=word, en=symbol['ph_en'], am=symbol['ph_am'])
+                elif 'word_symbol' in symbol:
+                    title = '{word} 拼音:[{word_symbol}]'.format(word=word, word_symbol=symbol['word_symbol'])
+                kwargs = {
+                    'title': title,
+                    'subtitle': subtitle,
+                    'arg': 'http://www.iciba.com/%s' % word,
+                }
+                fb.addItem(**kwargs)
+        fb.output()
+    except Exception as ex:
+        print("EXCEPT:", ex)
 
 
 def get_phonetic_symbols(word, headers):
@@ -91,6 +145,6 @@ if __name__ == '__main__':
     q = sys.argv[1]
     if '>' in q:
         q = q.split('>')[-1]
-        get_phonetic_symbols(q, headers)
+        get_phonetic_symbols_new(q, headers)
     else:
         get_suggest(q, headers)
