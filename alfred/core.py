@@ -17,12 +17,14 @@ _storage_base_dir = '/tmp/Alfred 2'
 PY2 = sys.version_info.major == 2
 PY3 = sys.version_info.major == 3
 
+
 def bundleID():
     global _bundle_id
     if not _bundle_id:
         try:
             plist_path = os.path.abspath('./info.plist')
-            prefs = plistlib.readPlist(plist_path)
+            # prefs = plistlib.readPlist(plist_path)
+            prefs = plistlib.load(open(plist_path, 'rb'), fmt=plistlib.FMT_XML)
             _bundle_id = prefs['bundleid'].strip()
             if not _bundle_id:
                 raise ValueError('bundle id missing.')
@@ -30,13 +32,16 @@ def bundleID():
             raiseWithFeedback()
     return _bundle_id
 
+
 def setDefaultEncodingUTF8():
     reload(sys)
     sys.setdefaultencoding('utf-8')
     del sys.setdefaultencoding
 
+
 def decode(s):
     return unicodedata.normalize("NFC", s.decode("utf-8"))
+
 
 def log(s):
     log_dir = os.path.join(_log_base_dir, bundleID())
@@ -60,12 +65,14 @@ def log(s):
 #def log(s):
 #  logger.info(s)
 
+
 def argv(pos, default=None):
     try:
         arg = sys.argv[pos]
     except:
         return default
     return arg
+
 
 def exitWithFeedback(**kwargs):
     retcode = kwargs.pop('retcode', 0)
@@ -74,14 +81,17 @@ def exitWithFeedback(**kwargs):
     fb.output()
     sys.exit(retcode)
 
+
 def exit(msg='', retcode=0):
     if msg:
         print(msg)
     sys.exit(retcode)
-    
+
+
 def query(word):
     scpt = 'tell application "Alfred 2" to search "{}"'.format(word)
     subprocess.call(['osascript', '-e', scpt])
+
 
 def notify(title, subtitle, text='', sound=False):
     try:
@@ -98,6 +108,7 @@ def notify(title, subtitle, text='', sound=False):
         NSUserNotificationCenter.defaultUserNotificationCenter().scheduleNotification_(notification)
     except Exception as e:
         log('Notification failed. {}'.format(e))
+
 
 # ONLY used in 'try...except...'
 def raiseWithFeedback(feedback=None):

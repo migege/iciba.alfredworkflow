@@ -6,7 +6,7 @@ from __future__ import print_function
 from __future__ import unicode_literals
 
 __author__ = 'lzw.whu@gmail.com'
-__version__ = '20191227:01'
+__version__ = '20220501:10'
 
 from alfred.feedback import Feedback
 import requests
@@ -16,8 +16,8 @@ import time
 import hashlib
 import json
 
-reload(sys)
-sys.setdefaultencoding('utf8')
+# reload(sys)
+# sys.setdefaultencoding('utf8')
 
 
 def get_phonetic_symbols_new(word, headers):
@@ -35,7 +35,7 @@ def get_phonetic_symbols_new(word, headers):
     for k, v in data:
         to_sign += v
     to_sign += "7ece94d9f9c202b0d2ec557dg4r9bc"
-    sign = hashlib.md5(to_sign).hexdigest()
+    sign = hashlib.md5(to_sign.encode('utf8')).hexdigest()
     data.append(("signature", sign))
     url += "?"
     for k, v in data:
@@ -43,7 +43,6 @@ def get_phonetic_symbols_new(word, headers):
     url.rstrip("&")
     r = requests.get(url, headers=headers)
     res = r.json()
-    # print(json.dumps(res))
 
     try:
         fb = Feedback()
