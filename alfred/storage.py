@@ -4,6 +4,8 @@ import os, subprocess
 
 from . import core, util, request
 
+_string_types = request._string_types
+
 def getLocalPath(source_link):
     storage_dir = os.path.join(core._storage_base_dir, core.bundleID())
     if not os.path.exists(storage_dir):
@@ -25,7 +27,7 @@ def isLocalExists(source_link):
     return os.path.exists(filepath)
 
 def batchDownload(links, wait=True):
-    if isinstance(links, basestring):
+    if isinstance(links, _string_types):
         links = links.split(',')
     if not links or not isinstance(links, list):
         return

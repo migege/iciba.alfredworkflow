@@ -3,14 +3,19 @@ from __future__ import absolute_import, division, unicode_literals
 import os, sys, subprocess, codecs
 import plistlib
 from datetime import datetime
-import unicodedata
 import traceback
 
 from .feedback import Feedback, Item
 
+# Alfred 在运行 workflow 时会注入以下环境变量,优先使用;回退到 Alfred 2 的目录
+# (Alfred 5 仍会兼容旧路径,但建议升级时迁移到环境变量指向的新位置)。
 _bundle_id = None
-_config_base_dir = os.path.expanduser('~/Library/Application Support/Alfred 2/Workflow Data/')
-_cache_base_dir = os.path.expanduser('~/Library/Caches/com.runningwithcrayons.Alfred-2/Workflow Data/')
+_config_base_dir = (
+    os.environ.get('alfred_workflow_data') or
+    os.path.expanduser('~/Library/Application Support/Alfred 2/Workflow Data/'))
+_cache_base_dir = (
+    os.environ.get('alfred_workflow_cache') or
+    os.path.expanduser('~/Library/Caches/com.runningwithcrayons.Alfred-2/Workflow Data/'))
 _log_base_dir = os.path.expanduser('~/Library/Logs/Alfred 2')
 _storage_base_dir = '/tmp/Alfred 2'
 
@@ -31,16 +36,6 @@ def bundleID():
         except:
             raiseWithFeedback()
     return _bundle_id
-
-
-def setDefaultEncodingUTF8():
-    reload(sys)
-    sys.setdefaultencoding('utf-8')
-    del sys.setdefaultencoding
-
-
-def decode(s):
-    return unicodedata.normalize("NFC", s.decode("utf-8"))
 
 
 def log(s):

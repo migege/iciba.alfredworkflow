@@ -14,8 +14,8 @@ if core.PY2:
     from urllib2 import HTTPHandler, HTTPSHandler, HTTPCookieProcessor
     import Cookie
     from cookielib import CookieJar
-
-if core.PY3:
+    _string_types = (basestring,)  # noqa: F821  Py2 内置
+else:
     from urllib.error import ContentTooShortError, HTTPError, URLError
     from urllib.parse import urlencode
     from urllib.request import Request as urlRequest
@@ -23,6 +23,7 @@ if core.PY3:
     from urllib.request import HTTPHandler, HTTPSHandler, HTTPCookieProcessor
     from http import cookies as Cookie
     from http.cookiejar import CookieJar
+    _string_types = (str,)
 
 
 """
@@ -75,7 +76,7 @@ def download(url, local, **kwargs):
                 read_size += len(block)
         if read_size < real_size:
             raise ContentTooShortError(
-                'retrieval incomplete: got only {} out of {} bytes'.formate(read_size, real_size),
+                'retrieval incomplete: got only {} out of {} bytes'.format(read_size, real_size),
                 None
                 )
     except Exception as e:
@@ -94,11 +95,11 @@ class Request(object):
         if data:
             if isinstance(data, dict):
                 data = urlencode(data)
-            if not isinstance(data, basestring):
+            if not isinstance(data, _string_types):
                 raise ValueError('data must be string or dict')
 
         request_type = kwargs.get('type', 'POST')
-        if data and isinstance(request_type, basestring) and request_type.upper()!='POST':
+        if data and isinstance(request_type, _string_types) and request_type.upper()!='POST':
             url = '{}?{}'.format(url, data)
             data = None # GET data must be None
 
@@ -133,7 +134,7 @@ class Request(object):
                 cookie = '; '.join(result)
             elif isinstance(cookie, Cookie.BaseCookie):
                 cookie = cookie.output(header='')
-            if isinstance(cookie, basestring):
+            if isinstance(cookie, _string_types):
                 self.request.add_header('Cookie', cookie)
         if cj is None:
             cj = CookieJar()

@@ -61,7 +61,10 @@
 				<string>正在查询 {query} ...</string>
 				<key>script</key>
 				<string>#!/bin/bash
-$path_to_python3 ./iciba.py '{query}'</string>
+# 可在 Alfred Workflow 的配置面板中设置 path_to_python3 变量指向你的 python3 路径,
+# 留空时回退到 PATH 中的 python3(依赖 iciba.py 的 shebang)。
+python3="${path_to_python3:-python3}"
+$python3 ./iciba.py '{query}'</string>
 				<key>scriptargtype</key>
 				<integer>0</integer>
 				<key>scriptfile</key>
@@ -124,9 +127,9 @@ $path_to_python3 ./iciba.py '{query}'</string>
 	<key>variables</key>
 	<dict>
 		<key>path_to_python2</key>
-		<string>/usr/bin/python2</string>
+		<string></string>
 		<key>path_to_python3</key>
-		<string>/opt/homebrew/bin/python3</string>
+		<string></string>
 	</dict>
 	<key>variablesdontexport</key>
 	<array>
@@ -134,7 +137,7 @@ $path_to_python3 ./iciba.py '{query}'</string>
 		<string>path_to_python3</string>
 	</array>
 	<key>version</key>
-	<string>20220501:10</string>
+	<string>20260719:11</string>
 	<key>webaddress</key>
 	<string>https://github.com/migege/iciba.alfredworkflow</string>
 </dict>
