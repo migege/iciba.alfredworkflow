@@ -6,7 +6,7 @@ from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 def build():
     root = Path(__file__).resolve().parents[1]
-    files = [root / name for name in ('iciba.py', 'info.plist', 'icon.png')]
+    files = [root / name for name in ('iciba.py', 'info.plist', 'icon.png', 'bin/apple-translate')]
     files.extend(sorted((root / 'alfred').glob('*.py')))
     destination = root / 'bundle' / 'iciba.alfredworkflow'
     destination.parent.mkdir(exist_ok=True)
@@ -15,7 +15,8 @@ def build():
             entry = ZipInfo(path.relative_to(root).as_posix())
             entry.compress_type = ZIP_DEFLATED
             entry.create_system = 3
-            entry.external_attr = 0o100644 << 16
+            mode = 0o100755 if path.name == 'apple-translate' else 0o100644
+            entry.external_attr = mode << 16
             archive.writestr(entry, path.read_bytes())
     print(destination)
 

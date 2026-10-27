@@ -125,6 +125,12 @@ exec "$python3" ./iciba.py "$1"</string>
 	</dict>
 	<key>variables</key>
 	<dict>
+		<key>apple_translation</key>
+		<string>1</string>
+		<key>translation_source</key>
+		<string></string>
+		<key>translation_target</key>
+		<string></string>
 		<key>path_to_python2</key>
 		<string></string>
 		<key>path_to_python3</key>
@@ -136,7 +142,7 @@ exec "$python3" ./iciba.py "$1"</string>
 		<string>path_to_python3</string>
 	</array>
 	<key>version</key>
-	<string>20261027:12</string>
+	<string>20261027:13</string>
 	<key>webaddress</key>
 	<string>https://github.com/migege/iciba.alfredworkflow</string>
 </dict>

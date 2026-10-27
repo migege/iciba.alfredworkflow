@@ -2,12 +2,16 @@
 # -*- coding:utf8 -*-
 
 __author__ = 'lzw.whu@gmail.com'
-__version__ = '20261027:12'
+__version__ = '20261027:13'
 
 from alfred.feedback import Feedback
 
 import hashlib
 import json
+import os
+from pathlib import Path
+import platform
+import subprocess
 import sys
 import time
 from urllib.parse import quote, urlencode
@@ -54,10 +58,60 @@ def _add_mean_items(fb, word, symbol):
     else:
         title = word
     for mean in symbol.get('parts', []):
-        subtitle = '; '.join(mean['means'])
+        subtitle = '; '.join(value.strip() for value in mean['means'] if value.strip())
+        if not subtitle:
+            continue
         if mean.get('part'):
             subtitle = mean['part'] + ' ' + subtitle
         fb.addItem(title=title, subtitle=subtitle, arg=_page_url(word))
+
+
+def _usable_translation(text, original):
+    if not isinstance(text, str):
+        return False
+    normalized = ' '.join(text.split()).casefold()
+    return bool(normalized) and normalized != ' '.join(original.split()).casefold()
+
+
+def _local_translate(word):
+    if os.environ.get('apple_translation', '1').strip().lower() in ('0', 'false', 'off'):
+        return None
+    if sys.platform != 'darwin' or int(platform.mac_ver()[0].split('.')[0] or '0') < 26:
+        return {'status': 'unavailable', 'message': 'Apple 本地翻译需要 macOS 26 或更高版本'}
+    helper = Path(__file__).resolve().parent / 'bin' / 'apple-translate'
+    request = {'text': word}
+    for key in ('source', 'target'):
+        value = os.environ.get('translation_' + key, '').strip()
+        if value:
+            request[key] = value
+    try:
+        process = subprocess.run(
+            [str(helper)], input=json.dumps(request, ensure_ascii=False),
+            capture_output=True, text=True, timeout=12, check=True)
+        result = json.loads(process.stdout)
+        if not isinstance(result, dict):
+            raise ValueError('Invalid translation response')
+        return result
+    except FileNotFoundError:
+        return {'status': 'unavailable', 'message': '请重新安装最新版 Workflow（缺少本地翻译组件）'}
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return {'status': 'error', 'message': 'Apple 本地翻译暂不可用，回车打开词霸网页'}
+
+
+def _add_local_translation(fb, word):
+    result = _local_translate(word)
+    if result is None:
+        return False
+    translation = result.get('translation')
+    if result.get('status') == 'translated' and _usable_translation(translation, word):
+        fb.addItem(title='{} => {}'.format(word, translation.strip()),
+                   subtitle='Apple 本地翻译',
+                   arg=_page_url(word))
+        return True
+    fb.addItem(title='Apple 本地翻译不可用',
+               subtitle=result.get('message') or '未获得有效翻译，回车打开词霸网页',
+               valid=False)
+    return False
 
 
 def get_phonetic_symbols_new(word, headers):
@@ -83,20 +137,24 @@ def get_phonetic_symbols_new(word, headers):
         for symbol in base.get('symbols') or []:
             _add_mean_items(fb, word, symbol)
 
-        # 没有词典释义时，回退到接口给出的机器翻译结果。
+        # 优先保留普通机器翻译；没有有效结果时才调用 Apple 本地翻译。
         if fb.isEmpty():
-            translate = base.get('translate_result') or ''
-            if translate and translate != word:
+            translate = base.get('translate_result')
+            if _usable_translation(translate, word):
                 fb.addItem(
                     title='{word} => {trans}'.format(word=word, trans=translate),
                     subtitle=base.get('translate_msg') or '机器翻译结果',
                     arg=_page_url(word))
             else:
-                fb.addItem(title='未找到 "{}"'.format(word),
-                           subtitle='回车打开词霸网页查询',
-                           arg=_page_url(word))
+                if not _add_local_translation(fb, word):
+                    fb.addItem(title='未找到 "{}"'.format(word),
+                               subtitle='回车打开词霸网页查询',
+                               arg=_page_url(word))
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as ex:
-        fb = _error_feedback(word, ex)
+        fb = Feedback()
+        if not _add_local_translation(fb, word):
+            fallback = _error_feedback(word, ex)
+            fb.items.extend(fallback.items)
     fb.output()
 
 
