@@ -142,7 +142,7 @@ exec "$python3" ./iciba.py "$1"</string>
 		<string>path_to_python3</string>
 	</array>
 	<key>version</key>
-	<string>20261027:14</string>
+	<string>20261027:15</string>
 	<key>webaddress</key>
 	<string>https://github.com/migege/iciba.alfredworkflow</string>
 </dict>

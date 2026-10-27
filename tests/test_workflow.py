@@ -186,16 +186,39 @@ class QueryTests(unittest.TestCase):
             self.output(iciba.get_suggest, 'hello', {})
         self.local.assert_not_called()
 
-    def test_unusable_local_results_preserve_web_lookup(self):
-        for response in [
-            {'status': 'translated', 'translation': ' HELLO '},
-            {'status': 'translated', 'translation': ''},
-            {'status': 'not_installed', 'message': '请下载语言'},
-            {'status': 'error'},
-        ]:
+    def test_unchanged_or_empty_local_translation_is_not_an_availability_error(self):
+        for translation in [' HELLO ', '', '  ']:
+            with self.subTest(translation=translation):
+                self.local.return_value = {'status': 'translated', 'translation': translation}
+                result = self.lookup({})
+                self.assertEqual(len(result), 1)
+                self.assertEqual(result[0].findtext('title'), '未找到 "hello" 的翻译')
+                self.assertEqual(result[0].get('arg'), iciba._page_url('hello'))
+                self.assertNotIn('不可用', ElementTree.tostring(result, encoding='unicode'))
+                self.assertNotIn('语言包', ElementTree.tostring(result, encoding='unicode'))
+
+    def test_no_translation_after_network_error_is_still_a_completed_attempt(self):
+        self.local.return_value = {'status': 'translated', 'translation': 'hello'}
+        with patch.object(iciba, '_get_json', side_effect=TimeoutError()):
+            result = self.output(iciba.get_phonetic_symbols_new, 'hello', {})
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].findtext('title'), '未找到 "hello" 的翻译')
+
+    def test_local_failures_explain_the_specific_condition_and_keep_web_lookup(self):
+        cases = [
+            ({'status': 'not_installed', 'message': '请下载语言', 'source': 'en',
+              'target': 'ja'}, '缺少本次翻译所需的语言包', 'en → ja'),
+            ({'status': 'unsupported', 'message': '不支持的语言组合', 'source': 'nb',
+              'target': 'zh-Hans'}, 'Apple 不支持此语言组合', 'nb → zh-Hans'),
+            ({'status': 'error', 'message': 'Apple 本地翻译暂不可用'},
+             'Apple 未能完成本次翻译', '本次翻译失败'),
+        ]
+        for response, title, subtitle in cases:
             with self.subTest(response=response):
                 self.local.return_value = response
                 result = self.lookup({})
+                self.assertEqual(result[0].findtext('title'), title)
+                self.assertIn(subtitle, result[0].findtext('subtitle'))
                 self.assertEqual(result[0].get('valid'), 'no')
                 self.assertEqual(result[-1].get('arg'), iciba._page_url('hello'))
 
@@ -229,6 +252,47 @@ class LocalTranslationTests(unittest.TestCase):
             iciba._local_translate('hello')
         request = json.loads(self.process.communicate.call_args.args[0])
         self.assertEqual(request, {'text': 'hello', 'source': 'en', 'target': 'ja'})
+
+    def test_unusable_language_guess_for_single_word_retries_english(self):
+        for status in ['not_installed', 'unsupported']:
+            with self.subTest(status=status):
+                self.process.communicate.reset_mock()
+                self.process.communicate.side_effect = [
+                    (json.dumps({'status': status, 'source': 'pt', 'target': 'zh-Hans'}), ''),
+                    (json.dumps({'status': 'translated', 'source': 'en',
+                                 'translation': 'OpenAI'}), ''),
+                ]
+                result = iciba._local_translate('OpenAI')
+                self.assertEqual(result['status'], 'translated')
+                requests = [json.loads(call.args[0])
+                            for call in self.process.communicate.call_args_list]
+                self.assertNotIn('source', requests[0])
+                self.assertEqual(requests[1], {'text': 'OpenAI', 'source': 'en'})
+
+    def test_explicit_source_phrase_and_existing_english_guess_are_not_retried(self):
+        cases = [
+            ('OpenAI', 'pt', 'pt', ''),
+            ('bonjour tout le monde', '', 'fr', ''),
+            ('OpenAI', '', 'en', ''),
+            ('bonjour', '', 'fr', 'en-US'),
+        ]
+        for text, configured, detected, target in cases:
+            with self.subTest(text=text, configured=configured, detected=detected):
+                self.process.communicate.reset_mock()
+                self.process.communicate.return_value = (
+                    json.dumps({'status': 'not_installed', 'source': detected}), '')
+                with patch.dict(os.environ, {'translation_source': configured,
+                                             'translation_target': target}):
+                    result = iciba._local_translate(text)
+                self.assertEqual(result['status'], 'not_installed')
+                self.assertEqual(self.process.communicate.call_count, 1)
+
+    def test_successful_non_english_detection_is_preserved(self):
+        self.process.communicate.return_value = (
+            json.dumps({'status': 'translated', 'source': 'fr', 'translation': '你好'}), '')
+        result = iciba._local_translate('bonjour')
+        self.assertEqual(result['source'], 'fr')
+        self.assertEqual(self.process.communicate.call_count, 1)
 
     def test_disabled_or_older_platform_never_launches_helper(self):
         with patch.dict(os.environ, {'apple_translation': '0'}):

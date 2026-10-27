@@ -2,7 +2,7 @@
 # -*- coding:utf8 -*-
 
 __author__ = 'lzw.whu@gmail.com'
-__version__ = '20261027:14'
+__version__ = '20261027:15'
 
 from alfred.feedback import Feedback
 
@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import signal
 import subprocess
 import sys
@@ -111,26 +112,51 @@ def _local_translate(word):
         result = json.loads(_run_translation_helper(helper, request))
         if not isinstance(result, dict):
             raise ValueError('Invalid translation response')
+        # Short Latin words are often misidentified as unrelated languages.
+        # Retry the workflow's English source only when that guess is unusable.
+        if ('source' not in request and result.get('source') != 'en'
+                and request.get('target', '').lower().replace('_', '-').split('-')[0] != 'en'
+                and result.get('status') in ('not_installed', 'unsupported')
+                and re.fullmatch(r"[A-Za-z][A-Za-z0-9'._+-]*", word)):
+            request['source'] = 'en'
+            result = json.loads(_run_translation_helper(helper, request))
+            if not isinstance(result, dict):
+                raise ValueError('Invalid translation response')
         return result
     except FileNotFoundError:
         return {'status': 'unavailable', 'message': '请重新安装最新版 Workflow（缺少本地翻译组件）'}
     except (OSError, ValueError, subprocess.SubprocessError):
-        return {'status': 'error', 'message': 'Apple 本地翻译暂不可用，回车打开词霸网页'}
+        return {'status': 'error', 'message': 'Apple 本地翻译失败，回车打开词霸网页'}
 
 
 def _add_local_translation(fb, word):
     result = _local_translate(word)
     if result is None:
         return False
+    status = result.get('status')
     translation = result.get('translation')
-    if result.get('status') == 'translated' and _usable_translation(translation, word):
-        fb.addItem(title='{} => {}'.format(word, translation.strip()),
-                   subtitle='Apple 本地翻译',
-                   arg=_page_url(word))
+    if status == 'translated':
+        if _usable_translation(translation, word):
+            fb.addItem(title='{} => {}'.format(word, translation.strip()),
+                       subtitle='Apple 本地翻译', arg=_page_url(word))
+        else:
+            fb.addItem(title='未找到 "{}" 的翻译'.format(word),
+                       subtitle='Apple 未返回有效译文，或保留了原文；回车打开词霸网页查询',
+                       arg=_page_url(word))
         return True
-    fb.addItem(title='Apple 本地翻译不可用',
-               subtitle=result.get('message') or '未获得有效翻译，回车打开词霸网页',
-               valid=False)
+
+    titles = {
+        'not_installed': '缺少本次翻译所需的语言包',
+        'unsupported': 'Apple 不支持此语言组合',
+        'unavailable': 'Apple 本地翻译不可用',
+    }
+    message = result.get('message') or '本次翻译失败，回车打开词霸网页查询'
+    if message == 'Apple 本地翻译暂不可用':
+        message = '本次翻译失败，回车打开词霸网页查询'
+    if status in ('not_installed', 'unsupported') and result.get('source') and result.get('target'):
+        message = '{} → {}：{}'.format(result['source'], result['target'], message)
+    fb.addItem(title=titles.get(status, 'Apple 未能完成本次翻译'),
+               subtitle=message, valid=False)
     return False
 
 
