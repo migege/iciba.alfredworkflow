@@ -2,7 +2,7 @@
 # -*- coding:utf8 -*-
 
 __author__ = 'lzw.whu@gmail.com'
-__version__ = '20261027:13'
+__version__ = '20261027:14'
 
 from alfred.feedback import Feedback
 
@@ -11,14 +11,15 @@ import json
 import os
 from pathlib import Path
 import platform
+import signal
 import subprocess
 import sys
 import time
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
-_TIMEOUT = 10
-_SUGGEST_TIMEOUT = 3
+_TIMEOUT = 2
+_SUGGEST_TIMEOUT = 0.5
 ICIBA_PAGE = 'https://www.iciba.com/word?w={}'
 
 
@@ -73,6 +74,28 @@ def _usable_translation(text, original):
     return bool(normalized) and normalized != ' '.join(original.split()).casefold()
 
 
+def _run_translation_helper(helper, request):
+    process = subprocess.Popen(
+        [str(helper)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE, text=True)
+    try:
+        stdout, _ = process.communicate(
+            json.dumps(request, ensure_ascii=False), timeout=12)
+        if process.returncode:
+            raise subprocess.CalledProcessError(process.returncode, process.args)
+        return stdout
+    except BaseException:
+        # Alfred cancels Python on new input; its native child must stop as well.
+        if process.poll() is None:
+            process.kill()
+        process.communicate()
+        raise
+
+
+def _cancel_query(signum, frame):
+    raise SystemExit(0)
+
+
 def _local_translate(word):
     if os.environ.get('apple_translation', '1').strip().lower() in ('0', 'false', 'off'):
         return None
@@ -85,10 +108,7 @@ def _local_translate(word):
         if value:
             request[key] = value
     try:
-        process = subprocess.run(
-            [str(helper)], input=json.dumps(request, ensure_ascii=False),
-            capture_output=True, text=True, timeout=12, check=True)
-        result = json.loads(process.stdout)
+        result = json.loads(_run_translation_helper(helper, request))
         if not isinstance(result, dict):
             raise ValueError('Invalid translation response')
         return result
@@ -160,6 +180,10 @@ def get_phonetic_symbols_new(word, headers):
 
 def get_suggest(q, headers):
     q = q.strip()
+    # Prefix suggestions are for words; phrases should go straight to translation.
+    if len(q.split()) > 1:
+        get_phonetic_symbols_new(q, headers)
+        return
     params = {
         'c': 'word',
         'm': 'getsuggest',
@@ -191,11 +215,11 @@ def get_suggest(q, headers):
                            autocomplete='> {}'.format(word), valid=False)
 
         if fb.isEmpty():
-            fb.addItem(title='查询 "{}"'.format(q),
-                       subtitle='没有建议，回车直接查词',
-                       autocomplete='> {}'.format(q), valid=False)
-    except (OSError, ValueError, KeyError, TypeError, AttributeError) as ex:
-        fb = _error_feedback(q, ex, suggest=True)
+            get_phonetic_symbols_new(q, headers)
+            return
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        get_phonetic_symbols_new(q, headers)
+        return
     fb.output()
 
 
@@ -222,4 +246,5 @@ def main(args=None):
 
 
 if __name__ == '__main__':
+    signal.signal(signal.SIGTERM, _cancel_query)
     main()

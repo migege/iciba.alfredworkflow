@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -65,7 +66,7 @@ class QueryTests(unittest.TestCase):
 
     def test_lookup_errors_always_return_xml_and_web_fallback(self):
         errors = [TimeoutError('timeout'), URLError('offline'),
-                  HTTPError('https://example.com', 503, 'Unavailable', {}, None),
+                  HTTPError('https://example.com', 503, 'Unavailable', {}, io.BytesIO(b'Unavailable')),
                   ValueError('invalid JSON')]
         for error in errors:
             if isinstance(error, HTTPError):
@@ -102,16 +103,21 @@ class QueryTests(unittest.TestCase):
         self.assertEqual(result[0].get('arg'), iciba._page_url('hello'))
         self.assertEqual(result[1].get('autocomplete'), '> hello world')
 
-    def test_empty_or_unavailable_suggestions_allow_direct_lookup(self):
-        for response in [{'message': []}, {'message': 'bad response'}, {}]:
+    def test_empty_or_unavailable_suggestions_continue_to_lookup(self):
+        ordinary = {'message': {'baesInfo': {'translate_result': '你好'}}}
+        for response in [{'message': []}, {'message': 'bad response'}, {}, TimeoutError()]:
             with self.subTest(response=response):
-                with patch.object(iciba, '_get_json', return_value=response):
+                with patch.object(iciba, '_get_json', side_effect=[response, ordinary]):
                     result = self.output(iciba.get_suggest, 'hello', {})
-                self.assertEqual(result[0].get('autocomplete'), '> hello')
-                self.assertEqual(result[0].get('valid'), 'no')
-        with patch.object(iciba, '_get_json', side_effect=TimeoutError):
-            result = self.output(iciba.get_suggest, '你好', {})
-        self.assertEqual(result[0].get('autocomplete'), '> 你好')
+                self.assertEqual(result[0].findtext('title'), 'hello => 你好')
+        self.local.assert_not_called()
+
+    def test_phrases_skip_suggestion_service(self):
+        with patch.object(iciba, 'get_phonetic_symbols_new') as lookup:
+            with patch.object(iciba, '_get_json') as request:
+                iciba.get_suggest('Good morning, how are you?', {})
+                request.assert_not_called()
+            lookup.assert_called_once_with('Good morning, how are you?', {})
 
     def test_empty_input_never_calls_network(self):
         with patch.object(iciba, '_get_json') as request:
@@ -137,7 +143,7 @@ class QueryTests(unittest.TestCase):
         request = open_url.call_args.args[0]
         self.assertEqual(parse_qs(urlsplit(request.full_url).query)['word'], [word])
         self.assertEqual(request.get_header('User-agent'), 'test')
-        self.assertEqual(open_url.call_args.kwargs['timeout'], 10)
+        self.assertEqual(open_url.call_args.kwargs['timeout'], 2)
 
 
 
@@ -166,11 +172,19 @@ class QueryTests(unittest.TestCase):
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0].findtext('subtitle'), 'Apple 本地翻译')
 
-    def test_local_translation_is_not_used_during_suggestions(self):
-        with patch.object(iciba, '_get_json', side_effect=TimeoutError):
+    def test_unavailable_suggestions_can_reach_local_translation(self):
+        self.local.return_value = {'status': 'translated', 'translation': '你好'}
+        with patch.object(iciba, '_get_json', side_effect=[
+                TimeoutError(), {'message': {'baesInfo': {}}}]):
             result = self.output(iciba.get_suggest, 'hello', {})
+        self.local.assert_called_once_with('hello')
+        self.assertEqual(result[0].findtext('subtitle'), 'Apple 本地翻译')
+
+    def test_valid_suggestions_skip_local_translation(self):
+        with patch.object(iciba, '_get_json', return_value={
+                'message': [{'key': 'hello', 'means': [{'means': ['你好']}]}]}):
+            self.output(iciba.get_suggest, 'hello', {})
         self.local.assert_not_called()
-        self.assertEqual(result[0].get('autocomplete'), '> hello')
 
     def test_unusable_local_results_preserve_web_lookup(self):
         for response in [
@@ -195,23 +209,25 @@ class LocalTranslationTests(unittest.TestCase):
         }))
         self.enter.enter_context(patch.object(sys, 'platform', 'darwin'))
         self.enter.enter_context(patch.object(iciba.platform, 'mac_ver', return_value=('26.0', (), '')))
-        self.run = self.enter.enter_context(patch.object(iciba.subprocess, 'run'))
-        self.run.return_value = subprocess.CompletedProcess([], 0,
+        self.spawn = self.enter.enter_context(patch.object(iciba.subprocess, 'Popen'))
+        self.process = self.spawn.return_value
+        self.process.returncode = 0
+        self.process.communicate.return_value = (
             '{"status": "translated", "translation": "你好"}', '')
 
     def test_text_is_sent_as_json_on_stdin_without_a_shell(self):
-        word = "hello ' \" & $(echo wrong)"
+        word = "hello ' & $(echo wrong)"
         result = iciba._local_translate(word)
         self.assertEqual(result['translation'], '你好')
-        self.assertEqual(len(self.run.call_args.args[0]), 1)
-        self.assertEqual(json.loads(self.run.call_args.kwargs['input']), {'text': word})
-        self.assertEqual(self.run.call_args.kwargs['timeout'], 12)
-        self.assertNotIn('shell', self.run.call_args.kwargs)
+        self.assertEqual(len(self.spawn.call_args.args[0]), 1)
+        self.assertEqual(json.loads(self.process.communicate.call_args.args[0]), {'text': word})
+        self.assertEqual(self.process.communicate.call_args.kwargs['timeout'], 12)
+        self.assertNotIn('shell', self.spawn.call_args.kwargs)
 
     def test_configured_languages_are_forwarded(self):
         with patch.dict(os.environ, {'translation_source': 'en', 'translation_target': 'ja'}):
             iciba._local_translate('hello')
-        request = json.loads(self.run.call_args.kwargs['input'])
+        request = json.loads(self.process.communicate.call_args.args[0])
         self.assertEqual(request, {'text': 'hello', 'source': 'en', 'target': 'ja'})
 
     def test_disabled_or_older_platform_never_launches_helper(self):
@@ -221,19 +237,72 @@ class LocalTranslationTests(unittest.TestCase):
             self.assertEqual(iciba._local_translate('hello')['status'], 'unavailable')
         with patch.object(sys, 'platform', 'linux'):
             self.assertEqual(iciba._local_translate('hello')['status'], 'unavailable')
-        self.run.assert_not_called()
+        self.spawn.assert_not_called()
 
-    def test_timeout_missing_helper_and_invalid_json_are_safe(self):
-        for error in [FileNotFoundError(), TimeoutError(),
-                      subprocess.TimeoutExpired('apple-translate', 12),
-                      subprocess.CalledProcessError(1, ['apple-translate'])]:
-            with self.subTest(error=error):
-                self.run.side_effect = error
-                self.assertIn(iciba._local_translate('hello')['status'], ('error', 'unavailable'))
-        self.run.side_effect = None
+    def test_missing_helper_failed_process_and_invalid_json_are_safe(self):
+        self.spawn.side_effect = FileNotFoundError()
+        self.assertEqual(iciba._local_translate('hello')['status'], 'unavailable')
+        self.spawn.side_effect = None
+        self.process.returncode = 1
+        self.assertEqual(iciba._local_translate('hello')['status'], 'error')
+        self.process.returncode = 0
         for output in ['not json', 'null', '[]']:
-            self.run.return_value.stdout = output
+            self.process.communicate.return_value = (output, '')
             self.assertEqual(iciba._local_translate('hello')['status'], 'error')
+
+    def test_timeout_and_cancel_stop_the_native_process(self):
+        for error in [subprocess.TimeoutExpired('apple-translate', 12), SystemExit(0)]:
+            with self.subTest(error=error):
+                self.process.reset_mock()
+                self.process.poll.return_value = None
+                self.process.communicate.side_effect = [error, ('', '')]
+                with self.assertRaises(type(error)):
+                    iciba._run_translation_helper('apple-translate', {'text': 'old query'})
+                self.process.kill.assert_called_once()
+                self.assertEqual(self.process.communicate.call_count, 2)
+
+
+class CancellationTests(unittest.TestCase):
+    def test_terminating_query_reaps_its_translator_child(self):
+        import signal
+        import socket
+        with socket.socket() as ready, tempfile.TemporaryDirectory() as directory:
+            ready.bind(('127.0.0.1', 0))
+            ready.listen(1)
+            ready.settimeout(5)
+            helper = Path(directory) / 'translator'
+            helper_code = (
+                'import os,socket; '
+                'connection=socket.create_connection(("127.0.0.1", ' +
+                str(ready.getsockname()[1]) + ')); '
+                'connection.sendall(str(os.getpid()).encode()); '
+                'connection.recv(1)')
+            helper.write_text('#!/bin/sh\nexec ' + shlex.quote(sys.executable) +
+                              ' -c ' + shlex.quote(helper_code) + '\n')
+            helper.chmod(0o755)
+            code = ('import iciba,signal,sys; '
+                    'signal.signal(signal.SIGTERM,iciba._cancel_query); '
+                    'iciba._run_translation_helper(sys.argv[1],{})')
+            worker = subprocess.Popen([sys.executable, '-c', code, str(helper)], cwd=ROOT,
+                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            child_pid = None
+            try:
+                with ready.accept()[0] as connection:
+                    connection.settimeout(5)
+                    child_pid = int(connection.recv(64))
+                    worker.send_signal(signal.SIGTERM)
+                    self.assertEqual(worker.wait(timeout=5), 0)
+                    with self.assertRaises(ProcessLookupError):
+                        os.kill(child_pid, 0)
+            finally:
+                if worker.poll() is None:
+                    worker.kill()
+                worker.communicate(timeout=5)
+                if child_pid is not None:
+                    try:
+                        os.kill(child_pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
 
 
 @unittest.skipUnless(sys.platform == 'darwin', 'Apple Translation requires macOS')
